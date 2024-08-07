@@ -5,7 +5,6 @@ import { S3Client, PutObjectCommand, ListObjectsCommand } from '@aws-sdk/client-
 import * as fs from 'fs';
 import * as csv from 'csv-parser';
 import * as fastcsv from 'fast-csv';
-import path from 'path';
 
 interface ImageData {
     image_urls: string[];
@@ -13,6 +12,7 @@ interface ImageData {
 }
 
 interface NewRowData {
+    course: string;
     dish_name: string;
     meal: string[];
     Cuisine: string;
@@ -50,59 +50,34 @@ export class OpenaiService {
     }
 
     async generateImage() {
-        let cnt = 0
-
         const rows = await this.getRows()
-        const image_urls: string[] = []
-        const s3_keys: string[] = []
 
         for (let row of rows) {
 
-            const getColumn = await this.getFirstColumn()
-
             let data: NewRowData = row
+            const store_dish = await this.getFileNameFromS3()
+            const key = `landscape/breakfast/${row.dish_name.split(" ").join("_") + ".png"}`
 
-            if (getColumn.includes(data.dish_name))
-                continue
+            if (store_dish.includes(key)) {
+                data.s3_key = key
+            } else {
+                const response = await this.openai.images.generate({
+                    model: "dall-e-3",
+                    prompt: `${row.dish_name}`,
+                    n: 1,
+                    size: "1792x1024"
+                });
 
-            if (!row.s3_key) {
+                const image_url = response.data[0].url;
 
-                const store_dish = await this.getFileNameFromS3()
-                const key = `dish/${row.dish_name.split(" ").join("_") + ".png"}`
+                const s3Url = await this.downloadAndUploadImage(image_url, row.dish_name.split(" ").join("_") + ".png");
 
-                if (!store_dish.includes(key)) {
-
-                    const response = await this.openai.images.generate({
-                        model: "dall-e-2",
-                        prompt: row.dish_name,
-                        n: 1,
-                        size: "1024x1024"
-                    });
-
-                    const image_url = response.data[0].url;
-
-                    const s3Url = await this.downloadAndUploadImage(image_url, row.dish_name.split(" ").join("_") + ".png");
-
-                    data.s3_key = s3Url
-                } else {
-                    data.s3_key = key
-                }
+                data.s3_key = s3Url
             }
-
-            cnt += 1
-
             await this.appendNewRow(data)
-
-            console.log({
-                cnt,
-            })
         }
 
-        return {
-            image_urls,
-            s3_keys
-        };
-
+        return "Done with the data!";
     }
 
     async downloadImage(url: string): Promise<Buffer> {
@@ -115,10 +90,7 @@ export class OpenaiService {
     }
 
     async uploadToS3(buffer: Buffer, filename: string) {
-        const key = `dish/${filename}`
-
-
-
+        const key = `landscape/breakfast/${filename}`
 
         const command = new PutObjectCommand({
             Bucket: 'eventcrm.io',
@@ -143,7 +115,7 @@ export class OpenaiService {
         return new Promise((resolve, reject) => {
             fs.createReadStream(filePath)
                 .pipe(csv())
-                .on('data', (data) => results.push(data[Object.keys(data)[0]]))
+                .on('data', (data) => results.push(data[Object.keys(data)[1]]))
                 .on('end', () => resolve(results))
                 .on('error', (err) => reject(err));
         });
@@ -156,6 +128,7 @@ export class OpenaiService {
                 .pipe(csv())
                 .on('data', (data) => {
                     const row: NewRowData = {
+                        course: data["Course"],
                         dish_name: data['Name of Dish'],
                         meal: data['Meal'].split(',').map((item: string) => item.trim()),
                         Cuisine: data['Cuisine'],
