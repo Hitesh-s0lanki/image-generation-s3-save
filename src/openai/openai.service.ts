@@ -53,28 +53,31 @@ export class OpenaiService {
         const rows = await this.getRows()
 
         for (let row of rows) {
+            try {
+                let data: NewRowData = row
+                const store_dish = await this.getFileNameFromS3()
+                const key = `landscape/brunch/${row.dish_name.split(" ").join("_") + ".png"}`
 
-            let data: NewRowData = row
-            const store_dish = await this.getFileNameFromS3()
-            const key = `landscape/breakfast/${row.dish_name.split(" ").join("_") + ".png"}`
+                if (store_dish.includes(key)) {
+                    data.s3_key = key
+                } else {
+                    const response = await this.openai.images.generate({
+                        model: "dall-e-3",
+                        prompt: `${row.dish_name} dish`,
+                        n: 1,
+                        size: "1792x1024"
+                    });
 
-            if (store_dish.includes(key)) {
-                data.s3_key = key
-            } else {
-                const response = await this.openai.images.generate({
-                    model: "dall-e-3",
-                    prompt: `${row.dish_name}`,
-                    n: 1,
-                    size: "1792x1024"
-                });
+                    const image_url = response.data[0].url;
 
-                const image_url = response.data[0].url;
+                    const s3Url = await this.downloadAndUploadImage(image_url, row.dish_name.split(" ").join("_") + ".png");
 
-                const s3Url = await this.downloadAndUploadImage(image_url, row.dish_name.split(" ").join("_") + ".png");
-
-                data.s3_key = s3Url
+                    data.s3_key = s3Url
+                }
+                await this.appendNewRow(data)
+            } catch (error) {
+                console.log({ error, dish: row.dish_name })
             }
-            await this.appendNewRow(data)
         }
 
         return "Done with the data!";
@@ -90,7 +93,7 @@ export class OpenaiService {
     }
 
     async uploadToS3(buffer: Buffer, filename: string) {
-        const key = `landscape/breakfast/${filename}`
+        const key = `landscape/brunch/${filename}`
 
         const command = new PutObjectCommand({
             Bucket: 'eventcrm.io',
@@ -160,7 +163,7 @@ export class OpenaiService {
         try {
             const command = new ListObjectsCommand({
                 Bucket: this.bucketName,
-                Prefix: "dish/"
+                Prefix: "landscape/brunch/"
             });
 
             const response = await this.s3Client.send(command);
