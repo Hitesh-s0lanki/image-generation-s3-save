@@ -56,7 +56,7 @@ export class OpenaiService {
             try {
                 let data: NewRowData = row
                 const store_dish = await this.getFileNameFromS3()
-                const key = `landscape/brunch/${row.dish_name.split(" ").join("_") + ".png"}`
+                const key = `landscape/main/${row.dish_name.split(" ").join("_") + ".png"}`
 
                 if (store_dish.includes(key)) {
                     data.s3_key = key
@@ -93,7 +93,7 @@ export class OpenaiService {
     }
 
     async uploadToS3(buffer: Buffer, filename: string) {
-        const key = `landscape/brunch/${filename}`
+        const key = `landscape/main/${filename}`
 
         const command = new PutObjectCommand({
             Bucket: 'eventcrm.io',
@@ -163,7 +163,7 @@ export class OpenaiService {
         try {
             const command = new ListObjectsCommand({
                 Bucket: this.bucketName,
-                Prefix: "landscape/brunch/"
+                Prefix: "landscape/main/"
             });
 
             const response = await this.s3Client.send(command);
