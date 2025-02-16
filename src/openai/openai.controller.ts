@@ -14,10 +14,4 @@ export class OpenaiController {
   getFirstColumn() {
     return this.openaiService.getFirstColumn()
   }
-
-  @Get('test')
-  test() {
-    return this.openaiService.test()
-  }
-
 }

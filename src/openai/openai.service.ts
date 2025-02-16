@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import axios from 'axios';
 import Openai, { OpenAI } from 'openai';
-import { S3Client, PutObjectCommand, ListObjectsCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, ListObjectsCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import * as fs from 'fs';
 import * as csv from 'csv-parser';
 import * as fastcsv from 'fast-csv';
@@ -28,6 +28,7 @@ interface NewRowData {
     Vegan: string;
     Serving_tyoe: string;
     s3_key?: string;
+    description?: string;
 }
 
 @Injectable()
@@ -55,15 +56,27 @@ export class OpenaiService {
         for (let row of rows) {
             try {
                 let data: NewRowData = row
-                const store_dish = await this.getFileNameFromS3()
-                const key = `landscape/main/${row.dish_name.split(" ").join("_") + ".png"}`
+                const key = `dish/${row.dish_name.split(" ").join("_") + ".png"}`
+                const keyExists = await this.getFileNameFromS3(key);
 
-                if (store_dish.includes(key)) {
+                console.log({
+                    dish_name: row.dish_name,
+                    description: row.description
+                })
+
+                if (keyExists) {
+                    console.log(`Already there ${key}`)
+
                     data.s3_key = key
                 } else {
+                    console.log("Generating...")
                     const response = await this.openai.images.generate({
                         model: "dall-e-3",
-                        prompt: `${row.dish_name} dish`,
+                        prompt: `
+                        Dish name = ${row.dish_name} ${row.Cuisine}
+                        
+                        Description : ${row.description}
+                        `,
                         n: 1,
                         size: "1792x1024"
                     });
@@ -83,6 +96,33 @@ export class OpenaiService {
         return "Done with the data!";
     }
 
+    async getFileNameFromS3(key: string): Promise<boolean> {
+        try {
+            // First, check if the key exists by trying to get the head of the object
+            const headCommand = new HeadObjectCommand({
+                Bucket: this.bucketName,
+                Key: key,
+            });
+
+            try {
+                await this.s3Client.send(headCommand);
+                console.log(`Key '${key}' exists in the S3 bucket.`);
+                return true; // If no error, the key exists
+            } catch (error: any) {
+                if (error.name === 'NotFound') {
+                    console.log(`Key '${key}' does not exist.`);
+                    return false; // Key doesn't exist
+                } else {
+                    throw error; // Throw other errors
+                }
+            }
+        } catch (error) {
+            console.error('Error checking file existence in S3:', error);
+            throw error;
+        }
+    }
+
+
     async downloadImage(url: string): Promise<Buffer> {
         const response = await axios({
             url,
@@ -93,7 +133,7 @@ export class OpenaiService {
     }
 
     async uploadToS3(buffer: Buffer, filename: string) {
-        const key = `landscape/main/${filename}`
+        const key = `dish/${filename}`
 
         const command = new PutObjectCommand({
             Bucket: 'eventcrm.io',
@@ -146,6 +186,7 @@ export class OpenaiService {
                         Gluten: data['Gluten'],
                         Nuts: data['Nuts'],
                         Vegan: data['Vegan'],
+                        description: data['Description'],
                         s3_key: data['s3_key'] ? data['s3_key'] : ''
                     };
                     results.push(row);
@@ -153,30 +194,6 @@ export class OpenaiService {
                 .on('end', () => resolve(results))
                 .on('error', (err) => reject(err));
         });
-    }
-
-    test() {
-        return this.getFileNameFromS3()
-    }
-
-    async getFileNameFromS3(): Promise<string[]> {
-        try {
-            const command = new ListObjectsCommand({
-                Bucket: this.bucketName,
-                Prefix: "landscape/main/"
-            });
-
-            const response = await this.s3Client.send(command);
-
-            if (response.Contents) {
-                return response.Contents.map((item) => item.Key);
-            }
-
-            return [];
-        } catch (error) {
-            console.error('Error getting file names from S3:', error);
-            throw error;
-        }
     }
 
 

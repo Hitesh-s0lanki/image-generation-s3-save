@@ -7,7 +7,7 @@ import * as csv from 'csv-parser';
 export class AwsService {
     private s3: AWS.S3;
     private bucketName = process.env.AWS_S3_BUCKET_NAME;
-    private prefix = 'landscape/soup/'
+    private prefix = 'landscape/dessert/'
 
     constructor() {
         this.s3 = new AWS.S3({
